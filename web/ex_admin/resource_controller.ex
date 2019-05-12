@@ -6,13 +6,15 @@ defmodule ExAdmin.ResourceController do
       alias ExAdmin.Authorization
       import ExAdmin.Utils
       import ExAdmin.ParamsToAtoms
+      import ExAdmin.ParamsAssociations
 
       def action(%{private: %{phoenix_action: action}} = conn, _options) do
         conn = conn |> assign(:xhr, get_req_header(conn, "x-requested-with") == ["XMLHttpRequest"])
-        resource = @resource || conn.params["resource"]
+        resource = Macro.expand(@resource, __ENV__) || conn.params["resource"]
         conn = scrub_params(conn, resource, action)
         defn = get_registered_by_controller_route!(conn, resource)
         params = filter_params(conn.params, defn.resource_model)
+         |> load_associations(defn.resource_name, defn.resource_model)
 
         if !restricted_action?(action, defn) do
           conn
@@ -37,7 +39,7 @@ defmodule ExAdmin.ResourceController do
       end
 
       defp handle_changeset_error(conn, defn, changeset, params) do
-        conn = put_flash(conn, :inline_error, changeset.errors)
+        conn = put_flash(conn, :inline_error, ExAdmin.ErrorsHelper.create_errors(changeset, defn.resource_model))
         |> Plug.Conn.assign(:changeset, changeset)
         |> Plug.Conn.assign(:ea_required, changeset.required)
         contents = do_form_view(conn, ExAdmin.Changeset.get_data(changeset), params)

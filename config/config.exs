@@ -17,6 +17,7 @@ use Mix.Config
 #   nest_scopes: false,
 #   scopes_index_page: false,
 #   head_template: {ExAdminDemo.AdminView, "admin_layout.html"},
+#   footer: "&copy; Project Name",
 #   logo_mini: "Ex<b>A</b>",
 #   logo_full: "Ex<b>Admin</b>",
 #   theme: ExAdmin.Theme.ActiveAdmin,
@@ -38,8 +39,8 @@ config :ex_admin,
   module: ExAdmin
 
 config :phoenix, :template_engines,
-          haml: PhoenixHaml.Engine,
-          eex: Phoenix.Template.EExEngine
+  haml: PhoenixHaml.Engine,
+  eex: Phoenix.Template.EExEngine
 
 # Sample configuration:
 #
@@ -54,4 +55,4 @@ config :phoenix, :template_engines,
 # Configuration from the imported file will override the ones defined
 # here (which is why it is important to import them last).
 #
-import_config "#{Mix.env}.exs"
+import_config "#{Mix.env()}.exs"

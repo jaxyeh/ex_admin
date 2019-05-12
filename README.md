@@ -21,7 +21,7 @@ See the [docs](https://hexdocs.pm/ex_admin/) and the [Wiki](https://github.com/s
 
 ## Usage
 
-ExAdmin is an add on for an application using the [Phoenix Framework](http://www.phoenixframework.org) to create an CRUD administration tool with little or no code. By running a few mix tasks to define which Ecto Models you want to administer, you will have something that works with no additional code.
+ExAdmin is an add on for an application using the [Phoenix Framework](http://www.phoenixframework.org) to create a CRUD administration tool with little or no code. By running a few mix tasks to define which Ecto Models you want to administer, you will have something that works with no additional code.
 
 Before using ExAdmin, you will need a Phoenix project and an Ecto model created.
 
@@ -53,26 +53,13 @@ mix.exs
   end
 ```
 
-#### GitHub with Ecto 1.1
-
-mix.exs
-```elixir
-  defp deps do
-     ...
-     {:ex_admin, github: "smpallen99/ex_admin"},
-     {:phoenix_ecto, "~> 2.0.0", override: true}, # the override is necessary
-     {:ecto, "~> 1.1", override: true},           # the override is necessary
-     ...
-  end
-```
-
 Add some admin configuration and the admin modules to the config file
 
 config/config.exs
 ```elixir
 config :ex_admin,
   repo: MyProject.Repo,
-  module: MyProject,
+  module: MyProject,    # MyProject.Web for phoenix >= 1.3.0-rc 
   modules: [
     MyProject.ExAdmin.Dashboard,
   ]
@@ -106,7 +93,7 @@ defmodule MyProject.Router do
   # setup the ExAdmin routes on /admin
   scope "/admin", ExAdmin do
     pipe_through :browser
-    admin_routes
+    admin_routes()
   end
 ```
 
@@ -157,6 +144,119 @@ Start the phoenix server again and browse to `http://localhost:4000/admin/my_mod
 
 You can now list/add/edit/and delete `MyModel`s.
 
+### Changesets
+ExAdmin will use your schema's changesets. By default we call the `changeset` function on your schema, although you
+can configure the changeset we use for update and create seperately.
+
+custom changeset:
+```elixir
+defmodule TestExAdmin.ExAdmin.Simple do
+  use ExAdmin.Register
+
+  register_resource TestExAdmin.Simple do
+    update_changeset :changeset_update
+    create_changeset :changeset_create
+  end
+end
+```
+
+#### Relationships
+
+We support many-to-many and has many relationships as provided by Ecto. We recommend using cast_assoc for many-to-many relationships
+and put_assoc for has-many. You can see example changesets in our [test schemas](test/support/schema.exs)
+
+When passing in results from a form for relationships we do some coercing to make it easier to work with them in your changeset.
+For collection checkboxes we will pass an array of the selected options ids to your changeset so you can get them and use put_assoc as [seen here](test/support/schema.exs#L26-L35)
+
+In order to support has many deletions you need you to setup a virtual attribute on your schema's. On the related schema you will
+need to add an _destroy virtual attribute so we can track the destroy property in the form. You will also need to cast this in your changeset. Here is an example changeset. In this scenario a User has many products and products can be deleted. We also have many roles associated.
+
+```elixir
+defmodule TestExAdmin.User do
+  import Ecto.Changeset
+  use Ecto.Schema
+  import Ecto.Query
+
+  schema "users" do
+    field :name, :string
+    field :email, :string
+    field :active, :boolean, default: true
+    has_many :products, TestExAdmin.Product, on_replace: :delete
+    many_to_many :roles, TestExAdmin.Role, join_through: TestExAdmin.UserRole, on_replace: :delete
+  end
+
+  @fields ~w(name active email)
+
+  def changeset(model, params \\ %{}) do
+    model
+    |> cast(params, @fields)
+    |> validate_required([:email, :name])
+    |> cast_assoc(:products, required: false)
+    |> add_roles(params)
+  end
+
+  def add_roles(changeset, params) do
+    if Enum.count(Map.get(params, :roles, [])) > 0 do
+      ids = params[:roles]
+      roles = TestExAdmin.Repo.all(from r in TestExAdmin.Role, where: r.id in ^ids)
+      put_assoc(changeset, :roles, roles)
+    else
+      changeset
+    end
+  end
+end
+
+defmodule TestExAdmin.Role do
+  use Ecto.Schema
+  import Ecto.Changeset
+  alias TestExAdmin.Repo
+
+  schema "roles" do
+    field :name, :string
+    has_many :uses_roles, TestExAdmin.UserRole
+    many_to_many :users, TestExAdmin.User, join_through: TestExAdmin.UserRole
+  end
+
+  @fields ~w(name)
+
+  def changeset(model, params \\ %{}) do
+    model
+    |> cast(params, @fields)
+  end
+end
+
+
+defmodule TestExAdmin.Product do
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  schema "products" do
+    field :_destroy, :boolean, virtual: true
+    field :title, :string
+    field :price, :decimal
+    belongs_to :user, TestExAdmin.User
+  end
+
+  def changeset(schema, params \\ %{}) do
+    schema
+    |> cast(params, ~w(title price user_id))
+    |> validate_required(~w(title price))
+    |> mark_for_deletion
+  end
+
+  defp mark_for_deletion(changeset) do
+    # If delete was set and it is true, let's change the action
+    if get_change(changeset, :_destroy) do
+      %{changeset | action: :delete}
+    else
+      changeset
+    end
+  end
+end
+```
+
+A good blog post exisits on the Platformatec blog describing how these relationships work: http://blog.plataformatec.com.br/2015/08/working-with-ecto-associations-and-embeds/
+
 ### Customizing the index page
 
 Use the `index do` command to define the fields to be displayed.
@@ -172,7 +272,7 @@ defmodule MyProject.ExAdmin.MyModel do
 
       column :id
       column :name
-      actions       # display the default actions column
+      actions()     # display the default actions column
     end
   end
 end
@@ -192,6 +292,7 @@ defmodule MyProject.ExAdmin.Contact do
         input contact, :first_name
         input contact, :last_name
         input contact, :email
+        input contact, :register_date, type: Date # if you use Ecto :date type in your schema
         input contact, :category, collection: MyProject.Category.all
       end
 
@@ -241,7 +342,7 @@ For example, to support rendering a tuple, add the following file to your projec
 
 ```elixir
 # lib/render.ex
-defimpl ExAdmin.Render, for: Tuple
+defimpl ExAdmin.Render, for: Tuple do
   def to_string(tuple), do: inspect(tuple)
 end
 ```
@@ -320,6 +421,19 @@ config :ex_admin,
     {"ActiveAdmin", ExAdmin.Theme.ActiveAdmin}
   ],
   ...
+```
+
+### Overriding the model name
+
+You can override the name of a model by defining a `model_name/0` function on
+the module. This is useful if you want to use a different module for some of
+your actions.
+
+admin/my_model.ex
+```elixir
+def model_name do
+  "custom_name"
+end
 ```
 
 ## Authentication
